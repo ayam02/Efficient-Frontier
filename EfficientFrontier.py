@@ -8,3 +8,10 @@ import pandas as pd
 import matplotlib.pyplot as plt 
 import mplcursors
 import scipy.optimize as optimize
+
+#Returns the Adjusted Closes of all stocks requested
+def fetch_stock_data(symbols, start, end):
+    
+    df = yahooFinance.download(symbols, start, end)["Adj Close"] #Use YahooFinance to pull adjusted closes
+    df = df[symbols] #loads the symbols into df
+    return df
