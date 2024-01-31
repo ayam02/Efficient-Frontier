@@ -83,6 +83,7 @@ Desc: Calculate and return the daily returns for each stock
 def calculate_daily_returns(stock_data):
     i = len(stock_data)                 # Store amount of stocks we have, for knowledge of the amount of rows
     daily_returns = np.log(1+stock_data.iloc[:, :i].pct_change()) #Calculates percent change from day to day
+    
     return daily_returns
 #end calculate_daily_returns
 
@@ -141,8 +142,8 @@ def gen_portfolio(df):
 Function Name: minimize_sharpe
 Desc: Not Yet Completed
 '''
-def minimize_sharpe(weights, returns):
-    return -gen_portfolio(weights)['sharpe']
+def minimize_sharpe(weights):
+    return -portfolio_stats(weights)['sharpe']
 #end minimize_sharpe
 
 
@@ -150,8 +151,8 @@ def minimize_sharpe(weights, returns):
 Function Name: portfolio_stats
 Desc: Not Yet Completed
 '''
-def portfolio_stats(weights, returns):
-    returns
+def portfolio_stats(weights):
+    returns= calculate_daily_returns(stock_data)
     weights = np.array(weights)
     port_return = np.sum(returns.mean() * weights) * 252
     port_vol = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
@@ -166,9 +167,9 @@ Function Name: get_frontier
 Desc: Not Yet Completed
 '''
 def gen_frontier(num_assets):
-    constraints = ({'type' : 'eq', 'fun': lambda x: np.sum(x) -1})
-    bounds = tuple((0,1) for x in range(num_assets))
-    initializer = num_assets * [1./num_assets,]
+    constraints = ({'type' : 'eq', 'fun': lambda x: np.sum(x) -1}) # set constraints
+    bounds = tuple((0,1) for x in range(num_assets)) # set max and min weights
+    initializer = num_assets * [1./num_assets,] #set even initial weight for each asset
     print(initializer)
     print(bounds)
     optimal_sharpe=optimize.minimize(minimize_sharpe,
@@ -176,7 +177,7 @@ def gen_frontier(num_assets):
                                  method = 'SLSQP',
                                  bounds = bounds,
                                  constraints = constraints)
-    print(optimal_sharpe)  
+    return optimal_sharpe 
 #end gen_frontier
 
 
@@ -192,10 +193,13 @@ def main():
     start = '2023-01-01'
     end = '2024-01-01'
 
+    global stock_data
     stock_data = fetch_stock_data(symbols, start, end)           # get adjusted closes of stock data in an array
     returns, stdev, weights = gen_portfolio(stock_data)          # get arrays of the random portfolios that were generated
+    
+    optimal_sharpe = gen_frontier(len(symbols))
+    print(optimal_sharpe['x'])
     plot_portfolios(weights, returns, stdev, symbols)            # plot the portfolios on the graph
-   # gen_frontier(len(symbols))
 #end main
     
 
