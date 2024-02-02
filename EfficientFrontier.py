@@ -131,7 +131,7 @@ def gen_portfolio(df):
     port_std = []
     weight_arr = []
 
-    for i in range(2000): #generates the number in range portfolios
+    for i in range(500): #generates the number in range portfolios
         weights = get_random_weights(len(df.columns)) #gets a random weight allocation
         weights = np.array(weights)                   #converts weights to a numpy array
         weight_arr.append(weights)                    #adds the weights to the storage of all weight combos
