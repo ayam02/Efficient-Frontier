@@ -48,6 +48,7 @@ def plot_portfolios(sym, opt_weights, opt_vol, opt_returns):
     
     weights = ""
     opt_weight_str = []
+    opt_weights = opt_weights *100
     for i in opt_weights:         # Runs for every array of weights in the weight list
         for j in range(len(i)):  # Runs for the amount of weights there are in the array
             weights = weights + (sym[j] + " " + "{:.2f}".format(i[j]) + " ")  # Formats a label which is readable
@@ -206,7 +207,25 @@ def get_optimals(weights):
 
 def get_weights(symbols, min_weight, max_weight):
     weight_bounds = list((min_weight, max_weight) for x in range(len(symbols)))
+    for i in range(len(symbols)):
+        while True:
+            try:
+                c = int(input("Set Risk Tier for " + symbols[i] + ": "))
+                if c == 1:
+                    weight_bounds[i] = (0.02, 0.03)
+                elif c == 2:
+                    weight_bounds[i] = (0.03, 0.04)
+                elif c == 3:
+                    weight_bounds[i] = (0.04, 1.00)
+                else:
+                    print("Invalid Risk Tier")
+                    continue
+                break
+            except ValueError:
+                print("Please enter a valid integer.")
+            
 
+            
     c = input("change max and min weights, input y to change ")
     if(c == "y"):
         for i in range(len(symbols)):
