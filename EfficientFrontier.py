@@ -14,6 +14,11 @@ import matplotlib.pyplot as plt
 import mplcursors
 import scipy.optimize as optimize
 
+import threading
+from OptimizeTarget import OptimizeTarget
+import PortfolioStats
+
+
 
 '''
 Function Name: fetch_stock_data
@@ -29,8 +34,6 @@ def fetch_stock_data(symbols, start, end):
     df = df[symbols]                                             #loads the symbols into df
     return df                                                    #return df array
 #end fetch_stock_data
-
-
 '''+
 
 Function Name: plot_portfolios
@@ -96,49 +99,27 @@ Desc: takes in weights, and returns the negative value of the sharpe ratio
       at those weights for the portfolio corresponding to that.
 '''
 def minimize_sharpe(weights):
-    return -portfolio_stats(weights)['sharpe']
+    return -portfolioStats.portfolio_stats(weights)['sharpe']
 #end minimize_sharpe
 
-'''
-Function Name: minimize_vol
-Inputs: weights - array of weights
-Returns: the volatility or std of the portfolio at those weights
-Desc: takes in weights, run portfolio_stats funtion with those weights
-      and returns the volitility associated with that portfolio
-'''
-def minimize_vol(weights):
-    vol = portfolio_stats(weights)['volatility']
-    return vol
-#end minimize_vol
 
 def minimize_ret(weights):
-    ret = portfolio_stats(weights)['return']
+    ret = portfolioStats.portfolio_stats(weights)['return']
     return ret
 
 def maximize_ret(weights):
-    returns = calculate_daily_returns(stock_data) # get daily returns
-    returns = pow(np.prod(returns), 252/len(returns)) - 1 # Average annualised returns for each stock
-    ret = returns.max() - portfolio_stats(weights)['return']
+    returns = pow(np.prod(daily_ret), 252/len(daily_ret)) - 1 # Average annualised returns for each stock
+    ret = returns.max() - portfolioStats.portfolio_stats(weights)['return']
     return ret
 
-'''
-Function Name: portfolio_stats
-Inputs: weights
-Returns: port_return - the return associated with the portfolio
-         port_vol - the volatility associated with the portfolio
-         sharpe - the sharpe rate associated with the portfolio
-Desc: Takes in weights, then calculates and returns the portfolio's
-      return, volatility, and sharpe ratio associated with those weights
-'''
-def portfolio_stats(weights):
-    returns= calculate_daily_returns(stock_data) # get daily returns
-    weights = np.array(weights)                  # set weights into a numpy array, if it is a list
-    port_return = np.sum(np.dot((pow(np.prod(returns), 252/len(returns)) - 1), weights)) #calculate annualized return per stock and multiplys by weights and adds up returns
-    port_vol = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights))) # calculates standard deviation of the portfolio
-    sharpe = port_return/port_vol # calculates sharpe ratio
-    return {'return': port_return, 'volatility': port_vol, 'sharpe': sharpe}
-#end portfolio_stats
 
+def min_ret_thread(initializer, bounds, constraints, result):
+    min_ret=optimize.minimize(minimize_ret, #the function we are trying to minimize
+                            initializer,       #set the starting bounds
+                            method = 'SLSQP',  #the method that will be used for optimization
+                            bounds = bounds,   #set the max and min value of each weight
+                            constraints = constraints) #sets the constraints for which the minimize_vol will be minimized
+    result.append(min_ret)
 
 '''
 Function Name: get_frontier
@@ -149,40 +130,49 @@ Desc: gets the returns and then runs an optimization algorithm in order to
       the max returns and min returns
 '''
 def gen_frontier(num_assets, bounds):
-    returns = calculate_daily_returns(stock_data) # get daily returns
-    returns = pow(np.prod(returns), 252/len(returns)) - 1 # Average annualised returns for each stock
+    returns = pow(np.prod(daily_ret), 252/len(daily_ret)) - 1 # Average annualised returns for each stock
     
     initializer = num_assets * [1./num_assets,] #set even initial weight for each asset
     constraints = ({'type':'eq','fun': lambda x: np.sum(x) - 1})
-    for i in range(50):
-        
-        min_ret=optimize.minimize(minimize_ret, #the function we are trying to minimize
-                                 initializer,       #set the starting bounds
-                                 method = 'SLSQP',  #the method that will be used for optimization
-                                 bounds = bounds,   #set the max and min value of each weight
-                                 constraints = constraints) #sets the constraints for which the minimize_vol will be minimized
-        max_ret=optimize.minimize(maximize_ret, #the function we are trying to minimize
-                                 initializer,       #set the starting bounds
-                                 method = 'SLSQP',  #the method that will be used for optimization
-                                 bounds = bounds,   #set the max and min value of each weight
-                                 constraints = constraints) #sets the constraints for which the minimize_vol will be minimized
-    min_ret = min_ret['fun']
-    max_ret = returns.max() - max_ret['fun']
 
+    min_thread_result = []
+    min_thread = threading.Thread(target=min_ret_thread, args=(initializer, bounds, constraints, min_thread_result)) 
+    min_thread.start()
+    max_ret=optimize.minimize(maximize_ret, #the function we are trying to minimize
+                                 initializer,       #set the starting bounds
+                                 method = 'SLSQP',  #the method that will be used for optimization
+                                 bounds = bounds,   #set the max and min value of each weight
+                                 constraints = constraints) #sets the constraints for which the minimize_vol will be minimized
+    
+    max_ret = returns.max() - max_ret['fun']
+    min_thread.join()
+    min_result = min_thread_result[0]
+    min_ret = min_result['fun']
     target_ret = np.linspace(min_ret, max_ret, 50) #create 50 points between the max and min values
     weights = [] #create storage for weights
-    for target in target_ret: #runs for every point in the 50 targets
+
+    threads = []
+    min_vol_result = []
+    lock = threading.Lock()
+
+    optimizer = OptimizeTarget(initializer,bounds,lock, portfolioStats, daily_ret)
+    for t in target_ret: #runs for every point in the 50 targets
         #create a function to find when the minimize function at weights is equal to the target
-        constraints = ({'type':'eq','fun': lambda x: portfolio_stats(x)['return']-target},
-                   {'type':'eq','fun': lambda x: np.sum(x) - 1}) #ensures all weights are equal to 1
-        optimal_vol=optimize.minimize(minimize_vol, #the function we are trying to minimize
-                                 initializer,       #set the starting bounds
-                                 method = 'SLSQP',  #the method that will be used for optimization
-                                 bounds = bounds,   #set the max and min value of each weight
-                                 constraints = constraints) #sets the constraints for which the minimize_vol will be minimized
-        weights.append(optimal_vol['x']) #store the weights which got the optimal volatility 
+        thread = threading.Thread(target=optimizer.target_vol_thread, args=(t, min_vol_result))
+        threads.append(thread)
+
+    for thread in threads:
+        thread.start()
+
+    for thread in threads:
+        thread.join()
+
+    for result in min_vol_result:
+        weights.append(result['x'])
+            
     return np.round(np.array(weights), 8) #round and return the weights
 #end gen_frontier
+
 
 '''
 Function Name: get_optimals
@@ -193,14 +183,13 @@ Desc: takes in the optimal weights and generates the standard deviations and
       returns for each of those portfolios.
 '''
 def get_optimals(weights):
-    daily_returns = calculate_daily_returns(stock_data) # get daily returns
-    returns = pow(np.prod(daily_returns), 252/len(daily_returns)) - 1 # Average annualised returns for each stock
+    returns = pow(np.prod(daily_ret), 252/len(daily_ret)) - 1 # Average annualised returns for each stock
 
     return_arr = [] #create storage arrays
     stdevs = []
     for weight in weights: #run for every portfolio
         return_arr.append(np.sum(np.dot(returns, weight))) #store the portfolio returns
-        stdevs.append(np.sqrt(np.dot(weight.T, np.dot(daily_returns.cov() * 252, weight)))) #store the portfolio Standard deviation
+        stdevs.append(np.sqrt(np.dot(weight.T, np.dot(daily_ret.cov() * 252, weight)))) #store the portfolio Standard deviation
     return np.array(stdevs), np.array(return_arr)
 #end get_optimals
 
@@ -225,7 +214,8 @@ Desc: Main method, creates stock list, start and end dates, gets stock data, gen
 '''
 def main():
 
-    symbols = ["AAPL", "META", "MSFT", "GOOGL", "AMD", "KO", "J", "ALLY", "BMO"] # Add tickers you would like to be in the portfolios
+    symbols = ["MODG","LVMHF","PEP","JWEL","GIS","TJX","COST","ATD","V","ALLY","SCHW",
+               "JPM","BMO","ACN","CSCO","OTEX","DIS","PFE","VRTX","NVO","BEP","ENB","NEE","CNQ","J","MG","XYL","CP","NTR"] # Add tickers you would like to be in the portfolios
     # Date range
     min_weight = 0.02
     max_weight = 0.5
@@ -233,13 +223,16 @@ def main():
     start = '2014-01-01'
     end = '2024-01-01'
 
-    global stock_data
-    stock_data = fetch_stock_data(symbols, start, end)           # get adjusted closes of stock data in an array
+    stock_data = fetch_stock_data(symbols, start, end)
     
+    global daily_ret
+    daily_ret = calculate_daily_returns(stock_data)
+    global portfolioStats 
+    portfolioStats= PortfolioStats.PortfolioStats(daily_ret)
     weight_bounds = get_weights(symbols, min_weight, max_weight)
     
     opt_weights = gen_frontier(len(symbols), weight_bounds)         #get the optimal weights
-    optimal_vol, opt_rets = get_optimals(opt_weights)#get the optimal volatilities and returns
+    optimal_vol, opt_rets = get_optimals(opt_weights) #get the optimal volatilities and returns
     plot_portfolios(symbols, opt_weights, optimal_vol, opt_rets)            # plot the portfolios on the graph
 
 #end main
