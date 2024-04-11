@@ -11,6 +11,7 @@ import yfinance as yahooFinance
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt 
+from matplotlib.table import Table
 import mplcursors
 import scipy.optimize as optimize
 
@@ -48,7 +49,6 @@ Desc: Accepts all information about each portfolio that has been created, then p
 '''
 def plot_portfolios(sym, opt_weights, opt_vol, opt_returns):
     plt.figure(figsize = (12,6))                             # Set size of graph
-    
     weights = ""
     opt_weight_str = []
     opt_weights = opt_weights *100
@@ -62,19 +62,30 @@ def plot_portfolios(sym, opt_weights, opt_vol, opt_returns):
     opt_points = plt.scatter(opt_vol, opt_returns, c = (opt_returns/opt_vol), marker='x')
     cursor = mplcursors.cursor(hover=True) # Create cursor with hover functionability
 
+    clicked_point = None
     # Define the hover function so label is viewable when hovered over
     def on_hover(sel):
+        nonlocal clicked_point
         index = sel.target.index
         x, y = sel.target
         weight = opt_weight_str[index]
         sel.annotation.set_text(weight)
+        clicked_point = {'index': index, 'x': x, 'y': y}
 
     # Connect the hover function to the cursor
     cursor.connect("add", on_hover)
-    
-    plt.xlabel('Portfolio Volatility') # Label Axis, and create bar to display Sharpe ratio colorization
-    plt.ylabel('Portfolio Return')
-    plt.colorbar(label = 'Sharpe ratio (not adjusted for short rate)')
+
+    def on_click(event):
+        if clicked_point:
+            clicked_index = clicked_point['index']
+            clicked_label = opt_weight_str[clicked_index]
+            print("Clicked point index:", clicked_index)
+            print("Clicked point label:", clicked_label)
+            print("Clicked point coordinates (Volatility, Return):", clicked_point['x'], clicked_point['y'])
+            
+
+    # Connect the click function to the figure
+    plt.connect('button_press_event', on_click)
     plt.show()  # Display the graph
 #end plot_portfolios
 
@@ -149,7 +160,7 @@ def gen_frontier(num_assets, bounds):
     min_thread.join()
     min_result = min_thread_result[0]
     min_ret = min_result['fun']
-    target_ret = np.linspace(min_ret, max_ret, 50) #create 50 points between the max and min values
+    target_ret = np.linspace(min_ret, max_ret, 20) #create 50 points between the max and min values
     weights = [] #create storage for weights
 
     threads = []
